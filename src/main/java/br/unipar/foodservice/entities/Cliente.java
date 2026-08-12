@@ -1,10 +1,14 @@
 package br.unipar.foodservice.entities;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,6 +16,18 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Cliente do estabelecimento — identificado pelo telefone (chave única).
+ *
+ * <p>Desde a Sprint 2 (Sessão 17 / migration V13), o endereço deixou de ser
+ * embutido e passou a ser uma entidade {@link EnderecoCliente} em
+ * relacionamento 1:N. Cliente pode ter 0..N endereços; quando tem ≥1,
+ * exatamente um precisa estar marcado como
+ * {@code EnderecoCliente.principal=true} (regra garantida pelo service).
+ */
 @Entity
 @Table(name = "cliente")
 @Getter
@@ -35,28 +51,17 @@ public class Cliente extends BaseEntity {
     @Column(length = 120)
     private String email;
 
-    @Column(name = "endereco_logradouro", length = 150)
-    private String enderecoLogradouro;
-
-    @Column(name = "endereco_numero", length = 20)
-    private String enderecoNumero;
-
-    @Column(name = "endereco_complemento", length = 80)
-    private String enderecoComplemento;
-
-    @Column(name = "endereco_bairro", length = 80)
-    private String enderecoBairro;
-
-    @Column(name = "endereco_cidade", length = 80)
-    private String enderecoCidade;
-
-    @Column(name = "endereco_uf", length = 2)
-    private String enderecoUf;
-
-    @Column(name = "endereco_cep", length = 10)
-    private String enderecoCep;
-
     @Column(nullable = false)
     @Builder.Default
     private Boolean ativo = true;
+
+    /**
+     * Endereços cadastrados. Lista navegada por conveniência interna —
+     * para CRUD use {@code EnderecoClienteService} e os endpoints
+     * {@code /clientes/{id}/enderecos} / {@code /enderecos/{id}}.
+     */
+    @OneToMany(mappedBy = "cliente", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OrderBy("principal DESC, id ASC")
+    @Builder.Default
+    private List<EnderecoCliente> enderecos = new ArrayList<>();
 }

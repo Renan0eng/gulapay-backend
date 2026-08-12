@@ -21,6 +21,9 @@ class ClienteServiceTest {
     @Mock
     private ClienteRepository repository;
 
+    @Mock
+    private EnderecoClienteService enderecoClienteService;
+
     @InjectMocks
     private ClienteService service;
 
