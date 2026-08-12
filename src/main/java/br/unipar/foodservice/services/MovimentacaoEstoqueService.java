@@ -69,6 +69,45 @@ public class MovimentacaoEstoqueService {
         return repository.findByInsumoIdOrderByDataHoraDesc(insumoId);
     }
 
+    /**
+     * Registra uma {@code SAIDA_VENDA} — só pode ser chamado pelo
+     * fechamento de comanda ({@code ComandaService.fechar}). Bypassa a
+     * validação do {@link #registrar} (que recusa SAIDA_VENDA manual) mas
+     * mantém toda a lógica de FEFO/split entre lotes.
+     *
+     * @param insumoId         Insumo a baixar (vindo de {@code Produto.insumo} para UNITARIO).
+     * @param unidadeId        Unidade da quantidade informada — normalmente
+     *                         a {@code unidadePadrao} do insumo.
+     * @param quantidade       Quantidade na unidade informada (positiva).
+     * @param justificativa    Texto livre (ex.: "SAIDA_VENDA — comanda M-12-001 — item #42").
+     * @return                 1..N movimentações criadas (uma por lote consumido).
+     */
+    @Transactional
+    public List<MovimentacaoEstoque> registrarSaidaVenda(Long insumoId,
+                                                         Long unidadeId,
+                                                         BigDecimal quantidade,
+                                                         String justificativa) {
+        Insumo insumo = insumoRepository.findById(insumoId)
+                .orElseThrow(() -> new InvalidRequestException("Insumo não encontrado: " + insumoId));
+        UnidadeMedida unidade = unidadeRepository.findById(unidadeId)
+                .orElseThrow(() -> new InvalidRequestException("UnidadeMedida não encontrada: " + unidadeId));
+        validarCompatibilidade(insumo, unidade);
+
+        BigDecimal qtdNaPadrao = unidadeService.converter(quantidade, unidade, insumo.getUnidadePadrao());
+
+        var sintetico = new MovimentacaoEstoqueCreateRequest(
+                TipoMovimentacao.SAIDA_VENDA,
+                insumoId,
+                null,            // loteId — null força FEFO
+                unidadeId,
+                quantidade,
+                null,            // custoUnitario (n/a em saída)
+                null,            // validade (n/a)
+                null,            // codigoLote (n/a)
+                justificativa);
+        return processarSaida(sintetico, insumo, unidade, qtdNaPadrao);
+    }
+
     /** ENTRADA_COMPRA / ENTRADA_TROCA — cria novo Lote (se loteId nulo) ou soma a um existente. */
     private MovimentacaoEstoque processarEntrada(MovimentacaoEstoqueCreateRequest req,
                                                  Insumo insumo,

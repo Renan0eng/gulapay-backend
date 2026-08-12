@@ -3,7 +3,7 @@ package br.unipar.foodservice.services;
 import br.unipar.foodservice.dtos.ClienteCreateRequest;
 import br.unipar.foodservice.dtos.ClientePatchRequest;
 import br.unipar.foodservice.dtos.ClienteUpdateRequest;
-import br.unipar.foodservice.dtos.EnderecoDto;
+import br.unipar.foodservice.dtos.EnderecoClienteRequest;
 import br.unipar.foodservice.entities.Cliente;
 import br.unipar.foodservice.exceptions.BusinessException;
 import br.unipar.foodservice.exceptions.ResourceNotFoundException;
@@ -14,11 +14,22 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+/**
+ * Service de Cliente.
+ *
+ * <p>Desde a Sprint 2 (Sessão 17), Cliente não tem mais endereço embutido —
+ * a entidade {@code EnderecoCliente} é 1:N e gerenciada pelo
+ * {@link EnderecoClienteService}. Para conveniência do caller (e seguindo o
+ * padrão "embutido" da Sessão 16), o {@link #criar(ClienteCreateRequest)}
+ * ainda aceita uma lista opcional de endereços no payload — eles são
+ * persistidos na mesma transação.
+ */
 @Service
 @RequiredArgsConstructor
 public class ClienteService {
 
     private final ClienteRepository repository;
+    private final EnderecoClienteService enderecoClienteService;
 
     @Transactional
     public Cliente criar(ClienteCreateRequest request) {
@@ -26,21 +37,19 @@ public class ClienteService {
         if (repository.existsByTelefone(telefone)) {
             throw new BusinessException("Já existe um cliente com o telefone " + telefone + ".");
         }
-        EnderecoDto end = request.endereco() == null ? EnderecoDto.vazio() : request.endereco();
         Cliente cliente = Cliente.builder()
                 .nome(request.nome())
                 .telefone(telefone)
                 .email(request.email())
-                .enderecoLogradouro(end.logradouro())
-                .enderecoNumero(end.numero())
-                .enderecoComplemento(end.complemento())
-                .enderecoBairro(end.bairro())
-                .enderecoCidade(end.cidade())
-                .enderecoUf(end.uf())
-                .enderecoCep(end.cep())
                 .ativo(true)
                 .build();
-        return repository.save(cliente);
+        cliente = repository.save(cliente);
+
+        List<EnderecoClienteRequest> enderecos = request.enderecos();
+        if (enderecos != null && !enderecos.isEmpty()) {
+            adicionarEnderecosEmbutidos(cliente, enderecos);
+        }
+        return cliente;
     }
 
     @Transactional(readOnly = true)
@@ -68,17 +77,9 @@ public class ClienteService {
         if (!cliente.getTelefone().equals(telefone) && repository.existsByTelefone(telefone)) {
             throw new BusinessException("Já existe outro cliente com o telefone " + telefone + ".");
         }
-        EnderecoDto end = request.endereco() == null ? EnderecoDto.vazio() : request.endereco();
         cliente.setNome(request.nome());
         cliente.setTelefone(telefone);
         cliente.setEmail(request.email());
-        cliente.setEnderecoLogradouro(end.logradouro());
-        cliente.setEnderecoNumero(end.numero());
-        cliente.setEnderecoComplemento(end.complemento());
-        cliente.setEnderecoBairro(end.bairro());
-        cliente.setEnderecoCidade(end.cidade());
-        cliente.setEnderecoUf(end.uf());
-        cliente.setEnderecoCep(end.cep());
         cliente.setAtivo(request.ativo());
         return cliente;
     }
@@ -91,8 +92,9 @@ public class ClienteService {
 
     /**
      * Atualização parcial. Telefone informado é re-normalizado e revalidado
-     * quanto a unicidade. Endereço, se presente, atualiza apenas os campos
-     * informados (null mantém o valor atual).
+     * quanto à unicidade. Desde a Sprint 2 (Sessão 17), não trata mais
+     * endereço — usar os endpoints {@code /clientes/{id}/enderecos} e
+     * {@code /enderecos/{id}}.
      */
     @Transactional
     public Cliente patch(Long id, ClientePatchRequest req) {
@@ -106,18 +108,46 @@ public class ClienteService {
             cliente.setTelefone(tel);
         }
         if (req.email() != null) cliente.setEmail(req.email());
-        if (req.endereco() != null) {
-            EnderecoDto e = req.endereco();
-            if (e.logradouro()  != null) cliente.setEnderecoLogradouro(e.logradouro());
-            if (e.numero()      != null) cliente.setEnderecoNumero(e.numero());
-            if (e.complemento() != null) cliente.setEnderecoComplemento(e.complemento());
-            if (e.bairro()      != null) cliente.setEnderecoBairro(e.bairro());
-            if (e.cidade()      != null) cliente.setEnderecoCidade(e.cidade());
-            if (e.uf()          != null) cliente.setEnderecoUf(e.uf());
-            if (e.cep()         != null) cliente.setEnderecoCep(e.cep());
-        }
         if (req.ativo() != null) cliente.setAtivo(req.ativo());
         return cliente;
+    }
+
+    /**
+     * Persiste a lista de endereços vinda no payload de criação. Regras:
+     * <ul>
+     *   <li>1 endereço: vira automaticamente o principal.</li>
+     *   <li>≥2 endereços: exatamente um precisa ter {@code principal=true}.
+     *       Se nenhum vier marcado, o primeiro é promovido. Se mais de um
+     *       vier marcado, {@link BusinessException}.</li>
+     * </ul>
+     */
+    private void adicionarEnderecosEmbutidos(Cliente cliente, List<EnderecoClienteRequest> enderecos) {
+        long marcadosPrincipal = enderecos.stream()
+                .filter(e -> Boolean.TRUE.equals(e.principal()))
+                .count();
+        if (marcadosPrincipal > 1) {
+            throw new BusinessException(
+                    "Apenas um endereço pode ser marcado como principal por cliente.");
+        }
+
+        int indicePrincipal = -1;
+        if (marcadosPrincipal == 1) {
+            for (int i = 0; i < enderecos.size(); i++) {
+                if (Boolean.TRUE.equals(enderecos.get(i).principal())) {
+                    indicePrincipal = i;
+                    break;
+                }
+            }
+        } else {
+            // Nenhum marcado explicitamente → promove o primeiro.
+            indicePrincipal = 0;
+        }
+
+        for (int i = 0; i < enderecos.size(); i++) {
+            EnderecoClienteRequest req = enderecos.get(i);
+            boolean forcarPrincipal = (i == indicePrincipal);
+            enderecoClienteService.adicionarParaClienteExistente(cliente, req, forcarPrincipal);
+        }
     }
 
     /**
