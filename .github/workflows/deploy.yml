@@ -67,9 +67,16 @@ jobs:
 
       - name: Deploy backend and apply migrations
         shell: bash
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
           IMAGE="${{ secrets.DOCKERHUB_USER }}/gulapay-backend:latest"
           DB_URL="jdbc:postgresql://gulapay-postgres:5432/gulapay"
+
+          if [ -z "$JWT_SECRET" ] || [ "${#JWT_SECRET}" -lt 32 ]; then
+            echo "JWT_SECRET precisa estar configurado e ter pelo menos 32 caracteres."
+            exit 1
+          fi
 
           docker pull "$IMAGE"
 
@@ -82,6 +89,7 @@ jobs:
             -e DB_URL="$DB_URL" \
             -e DB_USER=postgres \
             -e DB_PASSWORD=1234 \
+            -e JWT_SECRET="$JWT_SECRET" \
             "$IMAGE"
 
           echo "Migrations concluídas com sucesso. Subindo backend..."
@@ -97,7 +105,7 @@ jobs:
             -e DB_URL="$DB_URL" \
             -e DB_USER=postgres \
             -e DB_PASSWORD=1234 \
-            -e JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            -e JWT_SECRET="$JWT_SECRET" \
             "$IMAGE"
 
           for attempt in {1..30}; do
