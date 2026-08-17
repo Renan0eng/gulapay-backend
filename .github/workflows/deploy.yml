@@ -77,7 +77,6 @@ jobs:
           docker run --rm \
             --network gulapay-network \
             -e SPRING_PROFILES_ACTIVE=prod \
-            -e SPRING_MAIN_WEB_APPLICATION_TYPE=none \
             -e SPRING_FLYWAY_ENABLED=true \
             -e APP_MIGRATIONS_ONLY=true \
             -e DB_URL="$DB_URL" \
