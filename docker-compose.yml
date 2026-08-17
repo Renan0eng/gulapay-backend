@@ -1,13 +1,11 @@
-version: '3.9'
-
 services:
 
   postgres:
     image: postgres:16
-    container_name: foodservice_postgres
+    container_name: gulapay-postgres
 
     environment:
-      POSTGRES_DB: foodservice
+      POSTGRES_DB: gulapay
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
 
@@ -17,21 +15,31 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gulapay"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
     restart: always
 
 
   backend:
     build: .
 
-    container_name: foodservice_api
+    container_name: gulapay-backend
 
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
     environment:
       SPRING_PROFILES_ACTIVE: dev
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_FLYWAY_ENABLED: "true"
 
-      DB_URL: jdbc:postgresql://postgres:5432/foodservice
+      DB_URL: jdbc:postgresql://postgres:5432/gulapay
       DB_USER: postgres
       DB_PASSWORD: postgres
 

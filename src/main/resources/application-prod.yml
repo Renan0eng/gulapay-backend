@@ -19,6 +19,9 @@ spring:
     baseline-on-migrate: false
     locations: classpath:db/migration
 
+app:
+  migrations-only: ${APP_MIGRATIONS_ONLY:false}
+
 logging:
   level:
     root: INFO

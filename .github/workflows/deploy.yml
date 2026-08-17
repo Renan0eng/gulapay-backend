@@ -11,6 +11,43 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Prepare Docker network
+        shell: bash
+        run: |
+          docker network inspect gulapay-network >/dev/null 2>&1 || docker network create gulapay-network
+
+      - name: Ensure PostgreSQL is running on the server
+        shell: bash
+        run: |
+          if ! docker ps -a --format '{{.Names}}' | grep -qx 'gulapay-postgres'; then
+            docker run -d --name gulapay-postgres \
+              --network gulapay-network \
+              -e POSTGRES_DB=gulapay \
+              -e POSTGRES_USER=postgres \
+              -e POSTGRES_PASSWORD=1234 \
+              -v gulapay_postgres_data:/var/lib/postgresql/data \
+              -p 5432:5432 \
+              postgres:16
+          else
+            docker start gulapay-postgres >/dev/null 2>&1 || true
+          fi
+
+          docker network connect gulapay-network gulapay-postgres >/dev/null 2>&1 || true
+
+          for attempt in {1..60}; do
+            if docker exec gulapay-postgres pg_isready -U postgres -d gulapay >/dev/null 2>&1; then
+              echo "PostgreSQL pronto."
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "PostgreSQL não ficou pronto dentro do prazo. Logs:"
+              docker logs gulapay-postgres || true
+              exit 1
+            fi
+            echo "Aguardando PostgreSQL ($attempt/60)..."
+            sleep 5
+          done
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -28,15 +65,56 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USER }}/gulapay-backend:latest
 
-      - name: Deploy on server (pull and restart)
+      - name: Deploy backend and apply migrations
+        shell: bash
         run: |
-          docker pull devnardi/gulapay-backend:latest && \
-          docker stop gulapay-backend || true && \
-          docker rm gulapay-backend || true && \
-          docker run -d --name gulapay-backend --network gulapay-network -p 8080:8080 \
+          IMAGE="${{ secrets.DOCKERHUB_USER }}/gulapay-backend:latest"
+          DB_URL="jdbc:postgresql://gulapay-postgres:5432/gulapay"
+
+          docker pull "$IMAGE"
+
+          echo "Executando migrations do Flyway..."
+          docker run --rm \
+            --network gulapay-network \
             -e SPRING_PROFILES_ACTIVE=prod \
-            -e DB_URL=jdbc:postgresql://gulapay-postgres:5432/gulapay \
+            -e SPRING_MAIN_WEB_APPLICATION_TYPE=none \
+            -e SPRING_FLYWAY_ENABLED=true \
+            -e APP_MIGRATIONS_ONLY=true \
+            -e DB_URL="$DB_URL" \
             -e DB_USER=postgres \
             -e DB_PASSWORD=1234 \
-            -e JWT_SECRET=gulapay_super_secret_key_2026_backend_security_very_strong \
-            devnardi/gulapay-backend:latest
+            "$IMAGE"
+
+          echo "Migrations concluídas com sucesso. Subindo backend..."
+          docker stop gulapay-backend >/dev/null 2>&1 || true
+          docker rm gulapay-backend >/dev/null 2>&1 || true
+
+          docker run -d --name gulapay-backend \
+            --network gulapay-network \
+            -p 8080:8080 \
+            -e SPRING_PROFILES_ACTIVE=prod \
+            -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
+            -e SPRING_FLYWAY_ENABLED=true \
+            -e DB_URL="$DB_URL" \
+            -e DB_USER=postgres \
+            -e DB_PASSWORD=1234 \
+            -e JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            "$IMAGE"
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8080/actuator/health >/dev/null; then
+              echo "Deploy concluído e aplicação saudável."
+              exit 0
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx 'gulapay-backend'; then
+              echo "Backend encerrou durante o startup:"
+              docker logs gulapay-backend || true
+              exit 1
+            fi
+            echo "Aguardando healthcheck da aplicação ($attempt/30)..."
+            sleep 5
+          done
+
+          echo "Backend não ficou saudável dentro do prazo. Logs:"
+          docker logs gulapay-backend || true
+          exit 1
