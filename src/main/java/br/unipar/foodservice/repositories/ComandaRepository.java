@@ -59,6 +59,11 @@ public interface ComandaRepository extends JpaRepository<Comanda, Long> {
     /**
      * Filtro genérico para listagem. Qualquer parâmetro {@code null} é
      * ignorado. Usado pelo {@code GET /comandas} com query params.
+     *
+     * <p>Os parâmetros de data usam {@code CAST(... AS timestamp)} no teste
+     * de nulidade: sem o cast, o PostgreSQL não consegue inferir o tipo do
+     * bind quando o valor é {@code null} e falha com
+     * {@code 42P18 — could not determine data type of parameter}.
      */
     @Query("""
         SELECT c
@@ -68,8 +73,8 @@ public interface ComandaRepository extends JpaRepository<Comanda, Long> {
            AND (:mesaId      IS NULL OR c.mesa.id    = :mesaId)
            AND (:clienteId   IS NULL OR c.cliente.id = :clienteId)
            AND (:garcomId    IS NULL OR c.garcom.id  = :garcomId)
-           AND (:dataInicio  IS NULL OR c.dataAbertura >= :dataInicio)
-           AND (:dataFim     IS NULL OR c.dataAbertura <= :dataFim)
+           AND (CAST(:dataInicio AS timestamp) IS NULL OR c.dataAbertura >= :dataInicio)
+           AND (CAST(:dataFim   AS timestamp) IS NULL OR c.dataAbertura <= :dataFim)
          ORDER BY c.dataAbertura DESC, c.id DESC
         """)
     List<Comanda> filtrar(@Param("status") StatusComanda status,

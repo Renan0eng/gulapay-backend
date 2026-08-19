@@ -108,8 +108,6 @@ class ComandaServiceTest {
         when(clienteRepository.findById(100L)).thenReturn(Optional.of(cliente));
         when(mesaRepository.findById(12L)).thenReturn(Optional.of(mesa));
         when(usuarioAutenticadoService.carregar(7L)).thenReturn(garcom);
-        when(repository.existsAbertaPorMesaEEscopo(eq(12L), eq(EscopoComanda.COMPARTILHADA)))
-                .thenReturn(false);
         when(repository.contarPorMesaNoDia(eq(12L), any(), any())).thenReturn(0L);
         when(repository.existsByCodigo(any())).thenReturn(false);
         when(repository.save(any(Comanda.class))).thenAnswer(inv -> inv.getArgument(0));
