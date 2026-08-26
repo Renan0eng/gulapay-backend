@@ -45,14 +45,36 @@ public class ClienteController {
         return ResponseEntity.created(location).body(ClienteResponse.from(novo));
     }
 
-    @GetMapping
-    @Operation(summary = "Lista clientes. Filtra por telefone via 'telefone' (busca exata).")
-    public ResponseEntity<?> listar(
-            @RequestParam(required = false) String telefone,
+    /*
+     * A escolha da consulta é feita pelo roteamento do Spring (condição
+     * `params` de cada @GetMapping), não por if dentro de um método: cada
+     * combinação de filtros tem seu próprio handler, já tipado com o retorno
+     * correto. O `!telefone` no handler de nome torna os mapeamentos
+     * mutuamente exclusivos e deixa a precedência do telefone explícita.
+     */
+
+    @GetMapping(params = "telefone")
+    @Operation(summary = "Busca exata por telefone (chave única do cliente). "
+            + "Retorna o cliente ou 404. Aceita o telefone formatado — é normalizado antes da consulta.")
+    public ResponseEntity<ClienteResponse> buscarPorTelefone(@RequestParam String telefone) {
+        return ResponseEntity.ok(ClienteResponse.from(service.buscarPorTelefone(telefone)));
+    }
+
+    @GetMapping(params = {"nome", "!telefone"})
+    @Operation(summary = "Busca parcial por nome (case-insensitive), no máximo 20 resultados, "
+            + "ordenados por nome. '%' e '_' valem como texto literal.")
+    public ResponseEntity<List<ClienteResponse>> buscarPorNome(
+            @RequestParam String nome,
             @RequestParam(name = "apenasAtivos", defaultValue = "false") boolean apenasAtivos) {
-        if (telefone != null && !telefone.isBlank()) {
-            return ResponseEntity.ok(ClienteResponse.from(service.buscarPorTelefone(telefone)));
-        }
+        List<ClienteResponse> resposta = service.buscarPorNome(nome, apenasAtivos).stream()
+                .map(ClienteResponse::from).toList();
+        return ResponseEntity.ok(resposta);
+    }
+
+    @GetMapping
+    @Operation(summary = "Lista clientes. Use 'telefone' para busca exata ou 'nome' para busca parcial.")
+    public ResponseEntity<List<ClienteResponse>> listar(
+            @RequestParam(name = "apenasAtivos", defaultValue = "false") boolean apenasAtivos) {
         List<ClienteResponse> resposta = service.listar(apenasAtivos).stream()
                 .map(ClienteResponse::from).toList();
         return ResponseEntity.ok(resposta);
