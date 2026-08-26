@@ -1,6 +1,7 @@
 package br.unipar.foodservice.entities;
 
 import br.unipar.foodservice.enums.EscopoComanda;
+import br.unipar.foodservice.enums.EstrategiaRateio;
 import br.unipar.foodservice.enums.StatusComanda;
 import br.unipar.foodservice.enums.TipoOrigemComanda;
 import jakarta.persistence.CascadeType;
@@ -133,4 +134,33 @@ public class Comanda extends BaseEntity {
 
     @Column(name = "data_fechamento")
     private LocalDateTime dataFechamento;
+
+    /**
+     * Estratégia aplicada no rateio (Sprint 3) — preenchida apenas na
+     * comanda {@code COMPARTILHADA} quando o Caixa aplica o rateio.
+     * {@code null} = ainda não rateada.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "estrategia_rateio", length = 15)
+    private EstrategiaRateio estrategiaRateio;
+
+    /**
+     * Valor recebido do rateio da {@code COMPARTILHADA} pai. Só é
+     * significativo em uma comanda {@code INDIVIDUAL} com
+     * {@link #comandaPai} preenchido. Soma-se a {@link #totalLiquido}
+     * (dos itens próprios, se houver) para compor o total a pagar.
+     */
+    @Column(name = "valor_rateio", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal valorRateio = BigDecimal.ZERO;
+
+    /**
+     * Indica se esta {@code INDIVIDUAL} participa do rateio da
+     * {@code COMPARTILHADA} pai (cenário "4 amigos, 3 comeram pizza").
+     * Só é significativo quando {@link #comandaPai} != null. Default
+     * {@code true} — o Caixa desmarca explicitamente antes do rateio.
+     */
+    @Column(name = "participante_rateio", nullable = false)
+    @Builder.Default
+    private Boolean participanteRateio = true;
 }
